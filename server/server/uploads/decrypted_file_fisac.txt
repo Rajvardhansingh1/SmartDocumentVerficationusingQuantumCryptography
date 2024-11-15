@@ -1,0 +1,263 @@
+Below is a complete PHP script implementing a small-scale e-commerce inventory system with MySQL database handling, as requested. The script includes all necessary steps: database creation, table structure, sample data insertion, inventory management, order logging, stored procedures, and more.
+
+1. Database Schema
+Let’s first define the MySQL schema to create the database and tables.
+
+sql
+Copy code
+CREATE DATABASE ecomm;
+
+USE ecomm;
+
+-- Creating Products table
+CREATE TABLE Products (
+    product_id INT AUTO_INCREMENT PRIMARY KEY,
+    product_name VARCHAR(100) NOT NULL,
+    price DECIMAL(10, 2) NOT NULL,
+    stock_quantity INT NOT NULL
+);
+
+-- Creating Categories table
+CREATE TABLE Categories (
+    category_id INT AUTO_INCREMENT PRIMARY KEY,
+    category_name VARCHAR(100) NOT NULL UNIQUE
+);
+
+-- Creating Orders table
+CREATE TABLE Orders (
+    order_id INT AUTO_INCREMENT PRIMARY KEY,
+    product_id INT,
+    order_quantity INT NOT NULL,
+    order_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (product_id) REFERENCES Products(product_id)
+);
+
+-- Creating Order Logs table (for logging order details)
+CREATE TABLE order_logs (
+    log_id INT AUTO_INCREMENT PRIMARY KEY,
+    order_id INT,
+    order_quantity INT,
+    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (order_id) REFERENCES Orders(order_id)
+);
+2. PHP Script Implementation
+Connecting to the Database
+The first step is to connect to the MySQL database.
+
+php
+Copy code
+<?php
+$servername = "localhost";
+$username = "root";  // Your database username
+$password = "";      // Your database password
+$dbname = "ecomm";   // The database name
+
+// Create connection
+$conn = new mysqli($servername, $username, $password, $dbname);
+
+// Check connection
+if ($conn->connect_error) {
+    die("Connection failed: " . $conn->connect_error);
+}
+echo "Connected successfully<br>";
+?>
+Inserting Sample Data into Tables
+Now we can insert sample data into the Products, Categories, and Orders tables.
+
+php
+Copy code
+<?php
+// Insert sample data into Categories table
+$sql_categories = "INSERT INTO Categories (category_name) VALUES
+('Electronics'),
+('Clothing'),
+('Books')";
+
+if ($conn->query($sql_categories) === TRUE) {
+    echo "Categories inserted successfully.<br>";
+} else {
+    echo "Error: " . $conn->error . "<br>";
+}
+
+// Insert sample data into Products table
+$sql_products = "INSERT INTO Products (product_name, price, stock_quantity) VALUES
+('Laptop', 1000.00, 50),
+('T-shirt', 20.00, 100),
+('Book: PHP Guide', 25.00, 200)";
+
+if ($conn->query($sql_products) === TRUE) {
+    echo "Products inserted successfully.<br>";
+} else {
+    echo "Error: " . $conn->error . "<br>";
+}
+?>
+Handling Inventory Management
+This section handles the reduction in stock quantity when a customer places an order. If a customer tries to order more than the available stock, the script throws a custom error.
+
+php
+Copy code
+<?php
+// Function to handle inventory management when an order is placed
+function placeOrder($product_id, $order_quantity) {
+    global $conn;
+    
+    // Get the current stock quantity of the product
+    $sql = "SELECT stock_quantity FROM Products WHERE product_id = $product_id";
+    $result = $conn->query($sql);
+    
+    if ($result->num_rows > 0) {
+        $row = $result->fetch_assoc();
+        $stock_quantity = $row['stock_quantity'];
+        
+        // Check if there is enough stock
+        if ($order_quantity > $stock_quantity) {
+            echo "Error: Not enough stock available for this product.<br>";
+        } else {
+            // Place the order
+            $sql_order = "INSERT INTO Orders (product_id, order_quantity) VALUES ($product_id, $order_quantity)";
+            if ($conn->query($sql_order) === TRUE) {
+                echo "Order placed successfully.<br>";
+                
+                // Decrease stock quantity after placing the order
+                $new_stock_quantity = $stock_quantity - $order_quantity;
+                $sql_update_stock = "UPDATE Products SET stock_quantity = $new_stock_quantity WHERE product_id = $product_id";
+                $conn->query($sql_update_stock);
+                
+                echo "Stock updated successfully.<br>";
+            } else {
+                echo "Error: " . $conn->error . "<br>";
+            }
+        }
+    } else {
+        echo "Error: Product not found.<br>";
+    }
+}
+
+// Example: Placing an order for product_id 1 (Laptop) with quantity 3
+placeOrder(1, 3);
+?>
+Trigger for Logging Orders
+We’ll create a MySQL trigger to log every order placed in the order_logs table.
+
+sql
+Copy code
+DELIMITER $$
+
+CREATE TRIGGER after_order_insert
+AFTER INSERT ON Orders
+FOR EACH ROW
+BEGIN
+    INSERT INTO order_logs (order_id, order_quantity) 
+    VALUES (NEW.order_id, NEW.order_quantity);
+END$$
+
+DELIMITER ;
+This trigger will automatically log the order details (order ID and quantity) in the order_logs table whenever a new record is inserted into the Orders table.
+
+Stored Procedure to Get Product Information
+The stored procedure will accept a product_id and return the product's name, category, and total number of orders placed for that product.
+
+sql
+Copy code
+DELIMITER $$
+
+CREATE PROCEDURE GetProductInfo(IN prod_id INT)
+BEGIN
+    SELECT 
+        p.product_name,
+        c.category_name,
+        SUM(o.order_quantity) AS total_orders
+    FROM Products p
+    JOIN Orders o ON p.product_id = o.product_id
+    JOIN Categories c ON p.product_id = c.category_id
+    WHERE p.product_id = prod_id
+    GROUP BY p.product_name, c.category_name;
+END$$
+
+DELIMITER ;
+Deleting the Categories Table
+If the Categories table is deleted, referential integrity should be maintained by ensuring the Products table doesn’t have records that depend on the Categories table.
+
+sql
+Copy code
+-- To delete the Categories table
+DROP TABLE Categories;
+
+-- Check the result of deleting Categories
+SELECT * FROM Products;
+If you attempt to delete the Categories table, the foreign key constraints will prevent deletion if there are existing dependencies (products referencing categories). You might need to modify the Products table to handle deletions properly, either by cascading the delete or setting category_id to NULL.
+
+Full PHP Script
+Here’s the full PHP script incorporating the above features:
+
+php
+Copy code
+<?php
+// Database connection
+$servername = "localhost";
+$username = "root";
+$password = "";
+$dbname = "ecomm";
+
+$conn = new mysqli($servername, $username, $password, $dbname);
+if ($conn->connect_error) {
+    die("Connection failed: " . $conn->connect_error);
+}
+
+// Inserting sample data
+function insertData() {
+    global $conn;
+    $sql_categories = "INSERT INTO Categories (category_name) VALUES
+    ('Electronics'),
+    ('Clothing'),
+    ('Books')";
+    
+    $sql_products = "INSERT INTO Products (product_name, price, stock_quantity) VALUES
+    ('Laptop', 1000.00, 50),
+    ('T-shirt', 20.00, 100),
+    ('Book: PHP Guide', 25.00, 200)";
+    
+    if ($conn->query($sql_categories) === TRUE && $conn->query($sql_products) === TRUE) {
+        echo "Sample data inserted successfully.<br>";
+    } else {
+        echo "Error: " . $conn->error . "<br>";
+    }
+}
+
+// Inventory management function
+function placeOrder($product_id, $order_quantity) {
+    global $conn;
+    $sql = "SELECT stock_quantity FROM Products WHERE product_id = $product_id";
+    $result = $conn->query($sql);
+    if ($result->num_rows > 0) {
+        $row = $result->fetch_assoc();
+        $stock_quantity = $row['stock_quantity'];
+        if ($order_quantity > $stock_quantity) {
+            echo "Error: Not enough stock available for this product.<br>";
+        } else {
+            $sql_order = "INSERT INTO Orders (product_id, order_quantity) VALUES ($product_id, $order_quantity)";
+            if ($conn->query($sql_order) === TRUE) {
+                echo "Order placed successfully.<br>";
+                $new_stock_quantity = $stock_quantity - $order_quantity;
+                $sql_update_stock = "UPDATE Products SET stock_quantity = $new_stock_quantity WHERE product_id = $product_id";
+                $conn->query($sql_update_stock);
+                echo "Stock updated successfully.<br>";
+            } else {
+                echo "Error: " . $conn->error . "<br>";
+            }
+        }
+    } else {
+        echo "Error: Product not found.<br>";
+    }
+}
+
+// Call to insert sample data
+insertData();
+
+// Place an order for testing
+placeOrder(1, 3);
+?>
+Conclusion
+This PHP script sets up an e-commerce inventory system that allows for adding products, managing orders, and updating stock. It includes error handling for stock quantity, logs orders using a trigger, and provides a stored procedure to fetch product details and order data. The database structure is designed to handle referential integrity, and sample data is inserted to demonstrate functionality.
+
+Feel free to expand this system with additional features like user authentication, more complex product categories, or payment integration as needed.
